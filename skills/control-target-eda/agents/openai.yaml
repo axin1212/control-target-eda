@@ -2,7 +2,6 @@ interface:
   display_name: "Target-Control EDA"
   short_description: "Plotly EDA for target and control tags"
   brand_color: "#2563EB"
-  default_prompt: "Use $target-control-eda to generate interactive Plotly EDA for my target tag and control tags."
+  default_prompt: "Use $control-target-eda to generate interactive Plotly EDA for my target tag and control tags."
 policy:
   allow_implicit_invocation: true
-

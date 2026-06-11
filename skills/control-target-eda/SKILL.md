@@ -1,5 +1,5 @@
 ---
-name: target-control-eda
+name: control-target-eda
 description: Use when analyzing industrial process data with a target tag and control tags, especially FDE/IIDF-style Parquet, CSV, or Excel files that need first-pass interactive Plotly EDA.
 ---
 
@@ -76,4 +76,3 @@ python -m pip install --target .python_deps pandas numpy plotly pyarrow openpyxl
 ```
 
 The script automatically adds `.python_deps` from the current working directory and the skill directory to `sys.path`.
-
