@@ -347,6 +347,18 @@ def compact_label(record: Dict[str, Any], tag: str) -> str:
     return f"{tag}<br>{wrap_for_axis(desc, 14, 14)}"
 
 
+def heatmap_axis_label(record: Dict[str, Any], tag: str) -> str:
+    desc = record["field_map"].get(tag, tag)
+    tag_part = shorten_text(tag, 18)
+    desc_part = shorten_text(desc, 16)
+    return f"{tag_part}<br>{desc_part}"
+
+
+def heatmap_hover_label(record: Dict[str, Any], tag: str) -> str:
+    desc = record["field_map"].get(tag, tag)
+    return f"{shorten_text(tag, 24)} / {shorten_text(desc, 24)}"
+
+
 def format_num(value: Any, digits: int = 4) -> str:
     if pd.isna(value):
         return ""
@@ -492,17 +504,24 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
         tags = [target] + [tag for tag in controls if tag in record["df"].columns and tag != target]
         df = record["df"][tags].dropna(how="all")
         corr = df.corr(numeric_only=True)
-        labels = [compact_label(record, tag) for tag in corr.columns]
+        labels = [heatmap_axis_label(record, tag) for tag in corr.columns]
+        hover_labels = [heatmap_hover_label(record, tag) for tag in corr.columns]
+        customdata = [
+            [[hover_labels[row_idx], hover_labels[col_idx]] for col_idx in range(len(hover_labels))]
+            for row_idx in range(len(hover_labels))
+        ]
         fig_heat = go.Figure(
             go.Heatmap(
                 z=corr.values,
                 x=labels,
                 y=labels,
+                customdata=customdata,
                 zmin=-1,
                 zmax=1,
                 colorscale="RdBu",
                 reversescale=True,
-                hovertemplate="x=%{x}<br>y=%{y}<br>corr=%{z:.4f}<extra></extra>",
+                hoverlabel={"align": "left", "font_size": 12},
+                hovertemplate="横轴=%{customdata[1]}<br>纵轴=%{customdata[0]}<br>相关系数=%{z:.4f}<extra></extra>",
             )
         )
         fig_heat.update_layout(title=f"{readable_name(record['name'], 42)}：相关性热力图")

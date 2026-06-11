@@ -146,6 +146,7 @@ Keep Mermaid diagrams editable and simple. Use process equipment or unit names w
 - Time-series pages should provide Chinese buttons for switching between points-only and points-with-lines display.
 - Ensure generated charts have coordinated layout with no obvious overlap among titles, subplot titles, legends, axis labels, tick labels, and mode buttons.
 - Truncate long tag descriptions in in-plot labels and keep the full text in hover text or summary tables.
+- For correlation heatmaps, do not put full long tag names in hover labels. Use concise hover text and keep complete tag details in the detail table.
 - Allocate explicit margins, bottom legend space, and minimum chart width for dense multi-panel Plotly figures.
 
 ## Dependencies
