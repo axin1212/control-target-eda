@@ -1,7 +1,7 @@
 interface:
   display_name: "Target-Control EDA"
-  short_description: "Plotly EDA for target and control tags"
+  short_description: "Infer process context and build target-control EDA"
   brand_color: "#2563EB"
-  default_prompt: "Use $control-target-eda to generate interactive Plotly EDA for my target tag and control tags."
+  default_prompt: "Use $control-target-eda to infer my process scenario, confirm target and control tags, create a Mermaid process-context Markdown file, and generate interactive Plotly EDA."
 policy:
   allow_implicit_invocation: true
