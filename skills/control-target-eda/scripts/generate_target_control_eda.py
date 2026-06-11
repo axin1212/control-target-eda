@@ -62,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--format", choices=["auto", "iidf", "two-row-csv", "csv", "excel", "parquet"], default="auto")
     parser.add_argument("--max-points-display", type=int, default=20000)
     parser.add_argument("--sampling-pairs", type=Path, help="Optional JSON config for raw-vs-aggregate comparison")
-    parser.add_argument("--locale", choices=["zh", "en"], default="zh")
+    parser.add_argument("--locale", choices=["zh", "en"], default="zh", help="Compatibility option; generated reports are always Chinese")
     return parser.parse_args()
 
 
@@ -86,8 +86,20 @@ def looks_like_datetime(value: str) -> bool:
     return not pd.isna(parsed[0])
 
 
+def detect_text_encoding(path: Path) -> str:
+    for encoding in ("utf-8-sig", "gb18030"):
+        try:
+            with path.open("r", encoding=encoding, newline="") as handle:
+                handle.read(4096)
+            return encoding
+        except UnicodeDecodeError:
+            continue
+    return "utf-8-sig"
+
+
 def detect_csv_header_mode(path: Path) -> str:
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    encoding = detect_text_encoding(path)
+    with path.open("r", encoding=encoding, newline="") as handle:
         reader = csv.reader(handle)
         first = next(reader, [])
         second = next(reader, [])
@@ -129,11 +141,12 @@ def description_for(meta: Dict[str, Dict[str, Any]], tag: str, fallback: str = "
 
 
 def read_two_row_csv(path: Path) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    encoding = detect_text_encoding(path)
+    with path.open("r", encoding=encoding, newline="") as handle:
         reader = csv.reader(handle)
         codes = next(reader)
         desc = next(reader)
-    df = pd.read_csv(path, skiprows=2, header=None, low_memory=False)
+    df = pd.read_csv(path, skiprows=2, header=None, low_memory=False, encoding=encoding)
     df = df.iloc[:, : len(codes)]
     df.columns = codes
     field_map = {code: desc[i] if i < len(desc) and desc[i] else code for i, code in enumerate(codes) if code}
@@ -158,7 +171,7 @@ def read_file(path: Path, fmt: str) -> Tuple[pd.DataFrame, Dict[str, str]]:
     if chosen == "two-row-csv":
         return read_two_row_csv(path)
     if chosen == "csv":
-        return pd.read_csv(path, low_memory=False), {}
+        return pd.read_csv(path, low_memory=False, encoding=detect_text_encoding(path)), {}
     raise SystemExit(f"Unsupported format for {path}: {fmt}")
 
 
@@ -229,12 +242,12 @@ def add_time_mode_buttons(fig: go.Figure) -> None:
                 "yanchor": "top",
                 "buttons": [
                     {
-                        "label": "Points + lines",
+                        "label": "点+连线",
                         "method": "restyle",
                         "args": [{"mode": ["lines+markers"] * trace_count}],
                     },
                     {
-                        "label": "Points only",
+                        "label": "只显示点",
                         "method": "restyle",
                         "args": [{"mode": ["markers"] * trace_count}],
                     },
@@ -355,25 +368,25 @@ def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: 
                 ]
             )
 
-    fig.update_layout(title="Target/control distribution overview", height=max(520, 210 * len(tags)), boxmode="group")
-    body = "<p class='muted'>Statistics use full data; plotted distributions may be sampled for rendering only.</p>"
+    fig.update_layout(title="目标位号与控制位号统计分布概览", height=max(520, 210 * len(tags)), boxmode="group")
+    body = "<p class='muted'>统计指标使用全量数据；图形渲染在数据量较大时仅对显示点做抽样。</p>"
     body += "<div class='panel'>" + fig_html(fig, include_plotlyjs=True) + "</div>"
-    body += "<div class='panel center-table'><h2>Key metrics</h2>" + table(["File", "Tag", "Q1", "Mean", "Q3", "Std", "P50"], key_rows) + "</div>"
-    body += "<div class='panel'><h2>Summary</h2>" + table(
-        ["File", "Tag", "Description", "Valid", "Missing", "Mean", "Std", "P05", "Q1", "P50", "Q3", "P95", "Min", "Max"],
+    body += "<div class='panel center-table'><h2>关键指标</h2>" + table(["文件", "位号", "Q1", "均值", "Q3", "标准差", "P50"], key_rows) + "</div>"
+    body += "<div class='panel'><h2>统计摘要</h2>" + table(
+        ["文件", "位号", "描述", "有效", "缺失", "均值", "标准差", "P05", "Q1", "P50", "Q3", "P95", "最小", "最大"],
         summary_rows,
     ) + "</div>"
-    filename = "目标控制统计分布.html" if locale == "zh" else "target_control_distribution.html"
-    title = "目标位号与控制位号统计分布" if locale == "zh" else "Target and Control Distribution"
+    filename = "目标控制统计分布.html"
+    title = "目标位号与控制位号统计分布"
     write_page(out_dir / filename, title, body)
 
 
 def time_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence[str], out_dir: Path, max_points: int, locale: str) -> None:
-    parts = ["<p class='muted'>The target is shown in raw units; controls are standardized as z-scores for visual comparison.</p>"]
+    parts = ["<p class='muted'>目标位号显示原始值；控制位号标准化为 z-score，便于在同一坐标尺度下比较变化节奏。右上角按钮可切换“点+连线”和“只显示点”。</p>"]
     for idx, record in enumerate(records):
         tags = [tag for tag in controls if tag in record["df"].columns]
         dfp = sample_df(record["df"][["_time", target] + tags].dropna(subset=["_time"]), max_points)
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, subplot_titles=[label(record, target), "Controls z-score"])
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, subplot_titles=[label(record, target), "控制位号 z-score"])
         target_df = dfp[["_time", target]].dropna()
         fig.add_trace(
             go.Scatter(
@@ -383,7 +396,7 @@ def time_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence
                 name=label(record, target),
                 line={"width": 1.4, "color": "#1f77b4"},
                 marker={"size": 3, "opacity": 0.55},
-                hovertemplate="time=%{x}<br>target=%{y:.4f}<extra></extra>",
+                hovertemplate="时间=%{x}<br>目标=%{y:.4f}<extra></extra>",
             ),
             row=1,
             col=1,
@@ -402,21 +415,21 @@ def time_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence
                     name=label(record, tag),
                     line={"width": 1},
                     marker={"size": 2.5, "opacity": 0.45},
-                    hovertemplate=f"time=%{{x}}<br>{esc(label(record, tag))} z=%{{y:.4f}}<extra></extra>",
+                    hovertemplate=f"时间=%{{x}}<br>{esc(label(record, tag))} z=%{{y:.4f}}<extra></extra>",
                 ),
                 row=2,
                 col=1,
             )
-        fig.update_layout(title=f"{record['name']}: target and controls over time", height=760, hovermode="x unified", legend={"orientation": "h", "y": -0.18})
+        fig.update_layout(title=f"{record['name']}：目标与控制位号沿时间轴变化", height=760, hovermode="x unified", legend={"orientation": "h", "y": -0.18})
         add_time_mode_buttons(fig)
         parts.append(f"<div class='panel'><h2>{esc(record['name'])}</h2>{fig_html(fig, include_plotlyjs=(idx == 0))}</div>")
-    filename = "目标控制时间变化.html" if locale == "zh" else "target_control_time.html"
-    title = "目标位号与控制位号时间变化" if locale == "zh" else "Target and Control Time Trends"
+    filename = "目标控制时间变化.html"
+    title = "目标位号与控制位号时间变化"
     write_page(out_dir / filename, title, "".join(parts))
 
 
 def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence[str], out_dir: Path, max_points: int, locale: str) -> None:
-    parts = ["<p class='muted'>Correlation is computed on full paired data. Scatter plots are sampled for display only.</p>"]
+    parts = ["<p class='muted'>相关性基于全量配对数据计算；散点图仅在显示层面抽样。相关性用于筛查共变关系，不代表因果。</p>"]
     first_plot = True
     for record in records:
         tags = [target] + [tag for tag in controls if tag in record["df"].columns and tag != target]
@@ -435,7 +448,7 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
                 hovertemplate="x=%{x}<br>y=%{y}<br>corr=%{z:.4f}<extra></extra>",
             )
         )
-        fig_heat.update_layout(title=f"{record['name']}: correlation heatmap", height=720)
+        fig_heat.update_layout(title=f"{record['name']}：相关性热力图", height=720)
 
         rows: List[List[str]] = []
         bars: List[Tuple[str, str, float]] = []
@@ -458,7 +471,7 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
                 hovertemplate="%{y}<br>corr=%{x:.4f}<extra></extra>",
             )
         )
-        fig_bar.update_layout(title=f"{record['name']}: controls vs target correlation", height=max(420, 26 * len(bars) + 160), xaxis_title="Pearson corr", yaxis={"autorange": "reversed"})
+        fig_bar.update_layout(title=f"{record['name']}：控制位号与目标位号相关性", height=max(420, 26 * len(bars) + 160), xaxis_title="Pearson 相关系数", yaxis={"autorange": "reversed"})
 
         scatter_titles = [f"{tag} {desc[:18]}" for tag, desc, _ in bars[:4]]
         fig_scatter = make_subplots(rows=2, cols=2, subplot_titles=scatter_titles)
@@ -478,19 +491,19 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
                 row=row,
                 col=col,
             )
-        fig_scatter.update_layout(title=f"{record['name']}: top related controls", height=720, showlegend=False)
+        fig_scatter.update_layout(title=f"{record['name']}：相关性最高的控制位号散点图", height=720, showlegend=False)
         parts.append(
             f"<div class='panel'><h2>{esc(record['name'])}</h2>"
             + fig_html(fig_heat, include_plotlyjs=first_plot)
             + fig_html(fig_bar)
             + fig_html(fig_scatter)
-            + "<h2>Details</h2>"
-            + table(["Control tag", "Description", "Paired rows", "Correlation"], rows)
+            + "<h2>相关性明细</h2>"
+            + table(["控制位号", "描述", "配对样本", "相关系数"], rows)
             + "</div>"
         )
         first_plot = False
-    filename = "目标控制相关性分析.html" if locale == "zh" else "target_control_correlation.html"
-    title = "目标位号与控制位号相关性分析" if locale == "zh" else "Target and Control Correlation"
+    filename = "目标控制相关性分析.html"
+    title = "目标位号与控制位号相关性分析"
     write_page(out_dir / filename, title, "".join(parts))
 
 
@@ -511,22 +524,22 @@ def overview_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequ
             ]
         )
     links = [
-        ("统计分布" if locale == "zh" else "Distribution", "目标控制统计分布.html" if locale == "zh" else "target_control_distribution.html"),
-        ("时间变化" if locale == "zh" else "Time trends", "目标控制时间变化.html" if locale == "zh" else "target_control_time.html"),
-        ("相关性分析" if locale == "zh" else "Correlation", "目标控制相关性分析.html" if locale == "zh" else "target_control_correlation.html"),
+        ("统计分布", "目标控制统计分布.html"),
+        ("时间变化", "目标控制时间变化.html"),
+        ("相关性分析", "目标控制相关性分析.html"),
     ]
     link_html = "".join(f"<li><a href='{esc(href)}'>{esc(text)}</a></li>" for text, href in links)
     body = f"""
 <div class="panel">
-  <h2>Target</h2>
+  <h2>目标位号</h2>
   <p><b>{esc(target)}</b></p>
-  <p class="muted">Controls: {esc(', '.join(controls))}</p>
+  <p class="muted">控制位号：{esc(', '.join(controls))}</p>
 </div>
-<div class="panel"><h2>Reports</h2><ul>{link_html}</ul></div>
-<div class="panel"><h2>Data overview</h2>{table(["File", "Rows", "Start", "End", "Target valid", "Target missing", "Mean", "Std"], rows)}</div>
+<div class="panel"><h2>报告入口</h2><ul>{link_html}</ul></div>
+<div class="panel"><h2>数据概览</h2>{table(["文件", "行数", "开始时间", "结束时间", "目标有效", "目标缺失", "均值", "标准差"], rows)}</div>
 """
-    title = "目标控制 Plotly EDA" if locale == "zh" else "Target-Control Plotly EDA"
-    write_page(out_dir / "index.html", title, body)
+    title = "目标控制 Plotly EDA"
+    write_page(out_dir / "报告入口.html", title, body)
 
 
 def sampling_impact_page(config_path: Path, records: Sequence[Dict[str, Any]], target: str, out_dir: Path, locale: str) -> None:
@@ -548,28 +561,28 @@ def sampling_impact_page(config_path: Path, records: Sequence[Dict[str, Any]], t
         raw_overlap = raw_series.loc[start:end]
         agg_overlap = agg_series.loc[start:end]
         variants = {
-            "aggregate_file": agg_overlap,
-            "raw_original": raw_overlap,
-            f"raw_to_{rule}_last": raw_overlap.resample(rule).last().dropna(),
-            f"raw_to_{rule}_mean": raw_overlap.resample(rule).mean().dropna(),
-            f"raw_to_{rule}_median": raw_overlap.resample(rule).median().dropna(),
+            "聚合文件": agg_overlap,
+            "原始数据": raw_overlap,
+            f"原始数据->{rule}_last": raw_overlap.resample(rule).last().dropna(),
+            f"原始数据->{rule}_mean": raw_overlap.resample(rule).mean().dropna(),
+            f"原始数据->{rule}_median": raw_overlap.resample(rule).median().dropna(),
         }
         fig = go.Figure()
         rows = []
         for name, values in variants.items():
             fig.add_trace(go.Box(y=sample_series(values, 50000), name=name, boxpoints="outliers", boxmean="sd"))
             rows.append([name] + stats_row(values))
-        fig.update_layout(title=f"{pair.get('label', raw['name'])}: sampling impact", height=680, boxmode="group")
+        fig.update_layout(title=f"{pair.get('label', raw['name'])}：降采样影响", height=680, boxmode="group")
         parts.append(
             f"<div class='panel'><h2>{esc(pair.get('label', raw['name']))}</h2>"
             + fig_html(fig, include_plotlyjs=first)
-            + table(["Series", "Valid", "Missing", "Mean", "Std", "P05", "Q1", "P50", "Q3", "P95", "Min", "Max"], rows)
+            + table(["口径", "有效", "缺失", "均值", "标准差", "P05", "Q1", "P50", "Q3", "P95", "最小", "最大"], rows)
             + "</div>"
         )
         first = False
     if parts:
-        title = "降采样影响分析" if locale == "zh" else "Sampling Impact Analysis"
-        write_page(out_dir / ("降采样影响分析.html" if locale == "zh" else "sampling_impact.html"), title, "".join(parts))
+        title = "降采样影响分析"
+        write_page(out_dir / "降采样影响分析.html", title, "".join(parts))
 
 
 def main() -> None:
@@ -588,11 +601,15 @@ def main() -> None:
     for path in files:
         print(f"Reading {path.name} ...", flush=True)
         raw_df, csv_field_map = read_file(path, args.format)
-        time_col = resolve_time_column(raw_df, args.time_col)
-        df = numeric_frame(raw_df, time_col, tags)
-        if args.target not in df.columns:
+        if args.target not in raw_df.columns:
             print(f"Warning: target {args.target} missing in {path.name}; skipping file", file=sys.stderr)
             continue
+        try:
+            time_col = resolve_time_column(raw_df, args.time_col)
+        except SystemExit as exc:
+            print(f"Warning: {exc}; skipping {path.name}", file=sys.stderr)
+            continue
+        df = numeric_frame(raw_df, time_col, tags)
         field_map = {tag: description_for(metadata, tag, csv_field_map.get(tag, tag)) for tag in tags}
         records.append({"name": path.stem, "path": path, "df": df, "field_map": field_map})
 

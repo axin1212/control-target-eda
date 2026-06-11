@@ -1,7 +1,7 @@
 interface:
-  display_name: "Target-Control EDA"
-  short_description: "Infer process context and build target-control EDA"
+  display_name: "目标控制 EDA"
+  short_description: "推断工艺场景并生成中文目标控制 EDA"
   brand_color: "#2563EB"
-  default_prompt: "Use $control-target-eda to infer my process scenario, confirm target and control tags, create a Mermaid process-context Markdown file, and generate interactive Plotly EDA."
+  default_prompt: "Use $control-target-eda 推断我的工艺场景，确认目标和控制位号，生成中文 Mermaid 工艺上下文 Markdown 和中文 Plotly 交互式 EDA。"
 policy:
   allow_implicit_invocation: true

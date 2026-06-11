@@ -3,9 +3,16 @@ name: control-target-eda
 description: Use when analyzing industrial process-control data to infer the process scenario, confirm a target tag, identify candidate control tags and feasible analysis ranges, draw a Mermaid process-flow Markdown file, and generate first-pass interactive Plotly EDA from FDE/IIDF-style Parquet, CSV, or Excel files.
 ---
 
-# Target Control EDA
+# Control Target EDA
 
 Use this skill to turn raw industrial process data plus basic user context into a process-control analysis pack: inferred process scenario, confirmed target tag, candidate control tags, feasible analysis ranges, Mermaid process-flow Markdown, target tag distribution, target/control time trends, and full-data correlation analysis.
+
+All final generated files must be Chinese:
+
+- HTML file names must use Chinese names.
+- Page titles, section titles, table headers, button labels, chart titles, and explanatory notes must be Chinese.
+- Do not generate English report filenames such as `target_control_distribution.html`.
+- Keep code identifiers and CLI option names in English only where required by the command interface.
 
 ## Required Inputs
 
@@ -41,7 +48,7 @@ IIDF minimum contract used by this skill:
    - Report `robust_range` from resistant quantiles such as P1-P99 or P5-P95, depending on outlier severity and data volume.
    - Report `eda_range` for the initial analysis window.
    - State clearly that these are historical analysis ranges, not validated production safety or operating limits.
-6. Create `process_context.md` in the output directory before plotting. Include:
+6. Create `工艺上下文.md` in the output directory before plotting. Include:
    - User inputs and missing context.
    - Data inventory and schema summary.
    - Inferred process scenario with evidence and uncertainties.
@@ -62,47 +69,47 @@ python scripts/generate_target_control_eda.py \
   --output-dir /path/to/plotly_eda_outputs
 ```
 
-9. Open `index.html` and guide the user through the three primary reports:
-   - `target_control_distribution.html`
-   - `target_control_time.html`
-   - `target_control_correlation.html`
+9. Open `报告入口.html` and guide the user through the three primary reports:
+   - `目标控制统计分布.html`
+   - `目标控制时间变化.html`
+   - `目标控制相关性分析.html`
 
-Use `--locale zh` when Chinese page titles are preferred.
+Chinese is mandatory for generated reports. `--locale` is retained only for backward compatibility and must not be used to produce English final files.
 
-## Process Context Markdown
+## 工艺上下文 Markdown
 
-Write `process_context.md` as a compact engineering note, not a long report. Use this structure:
+Write `工艺上下文.md` as a compact engineering note, not a long report. Use this structure:
 
 ````markdown
-# Process Context
+# 工艺上下文
 
-## User Inputs
+## 用户输入
 
-## Data Inventory
+## 数据清单
 
-## Inferred Process Scenario
+## 工艺场景推断
 
-## Target Tag
+## 目标位号
 
-## Candidate Control Tags
+## 候选控制位号
 
-| tag | inferred role | evidence | data quality | suggested range | caveats |
+| 位号 | 推断角色 | 证据 | 数据质量 | 建议分析范围 | 注意事项 |
 | --- | --- | --- | --- | --- | --- |
 
-## Feasible Range Analysis
+## 可行分析范围
 
-## Process Flow
+## 工艺流程
 
 ```mermaid
 flowchart LR
-  Feed["Feed / upstream"] --> Unit["Process unit"]
-  ControlA["Control tag A"] --> Unit
-  ControlB["Control tag B"] --> Unit
-  Unit --> Target["Target tag"]
-  Unit --> Downstream["Downstream / quality"]
+  Feed["上游来料"] --> Unit["过程单元"]
+  ControlA["控制位号A"] --> Unit
+  ControlB["控制位号B"] --> Unit
+  Unit --> Target["目标位号"]
+  Unit --> Downstream["下游/质量"]
 ```
 
-## Assumptions And Questions
+## 假设与问题
 ````
 
 Keep Mermaid diagrams editable and simple. Use process equipment or unit names when supported by user context or metadata; otherwise use neutral labels such as upstream, process unit, target, downstream, and control tag. Quote Mermaid node labels that contain punctuation, units, or Chinese text.
@@ -127,7 +134,7 @@ Keep Mermaid diagrams editable and simple. Use process equipment or unit names w
 - `--format`: `auto`, `iidf`, `two-row-csv`, `csv`, `excel`, or `parquet`.
 - `--max-points-display`: display sampling cap; statistics and correlations remain full-data.
 - `--sampling-pairs`: optional JSON config for raw-vs-aggregated sampling impact analysis.
-- `--locale`: `zh` or `en`.
+- `--locale`: compatibility option; generated final files remain Chinese.
 
 ## Visualization Rules
 
@@ -136,6 +143,7 @@ Keep Mermaid diagrams editable and simple. Use process equipment or unit names w
 - Sampling is only for rendering large time-series and scatter plots.
 - Distribution pages should combine horizontal distribution overview with key metrics and full summary tables.
 - Correlation is a screening view, not causal evidence. Mention lag, state segmentation, and process constraints when interpreting results.
+- Time-series pages should provide Chinese buttons for switching between points-only and points-with-lines display.
 
 ## Dependencies
 
