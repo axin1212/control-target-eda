@@ -1,0 +1,11 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.python_deps/
+plotly_eda_outputs/
+*.html
+*.csv
+*.xlsx
+*.xls
+*.parquet
+
