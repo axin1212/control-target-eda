@@ -144,6 +144,9 @@ Keep Mermaid diagrams editable and simple. Use process equipment or unit names w
 - Distribution pages should combine horizontal distribution overview with key metrics and full summary tables.
 - Correlation is a screening view, not causal evidence. Mention lag, state segmentation, and process constraints when interpreting results.
 - Time-series pages should provide Chinese buttons for switching between points-only and points-with-lines display.
+- Ensure generated charts have coordinated layout with no obvious overlap among titles, subplot titles, legends, axis labels, tick labels, and mode buttons.
+- Truncate long tag descriptions in in-plot labels and keep the full text in hover text or summary tables.
+- Allocate explicit margins, bottom legend space, and minimum chart width for dense multi-panel Plotly figures.
 
 ## Dependencies
 

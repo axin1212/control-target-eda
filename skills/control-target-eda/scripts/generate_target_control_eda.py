@@ -219,6 +219,22 @@ def table(headers: Sequence[str], rows: Sequence[Sequence[object]]) -> str:
     return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
 
+def shorten_text(value: object, max_chars: int = 28) -> str:
+    text = str(value)
+    return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+
+
+def readable_name(value: object, max_chars: int = 24) -> str:
+    return shorten_text(value, max_chars)
+
+
+def wrap_for_axis(value: object, first: int = 16, second: int = 16) -> str:
+    text = str(value)
+    if len(text) <= first:
+        return text
+    return text[:first] + "<br>" + shorten_text(text[first:], second)
+
+
 def fig_html(fig: go.Figure, include_plotlyjs: bool = False) -> str:
     fig.update_layout(template=None)
     return pio.to_html(
@@ -227,6 +243,38 @@ def fig_html(fig: go.Figure, include_plotlyjs: bool = False) -> str:
         include_plotlyjs=("directory" if include_plotlyjs else False),
         config={"displaylogo": False, "responsive": True},
     )
+
+
+def apply_readable_layout(
+    fig: go.Figure,
+    *,
+    height: Optional[int] = None,
+    top: int = 100,
+    bottom: int = 120,
+    left: int = 110,
+    right: int = 80,
+    legend: bool = True,
+) -> None:
+    layout: Dict[str, Any] = {
+        "margin": {"l": left, "r": right, "t": top, "b": bottom},
+        "font": {"size": 12},
+        "title": {"x": 0.5, "xanchor": "center", "y": 0.98, "yanchor": "top"},
+    }
+    if height is not None:
+        layout["height"] = height
+    if legend:
+        layout["legend"] = {
+            "orientation": "h",
+            "x": 0,
+            "xanchor": "left",
+            "y": -0.18,
+            "yanchor": "top",
+            "font": {"size": 11},
+            "itemsizing": "constant",
+        }
+    fig.update_layout(**layout)
+    fig.update_xaxes(automargin=True, tickfont={"size": 11})
+    fig.update_yaxes(automargin=True, tickfont={"size": 11})
 
 
 def add_time_mode_buttons(fig: go.Figure) -> None:
@@ -238,7 +286,7 @@ def add_time_mode_buttons(fig: go.Figure) -> None:
                 "direction": "right",
                 "x": 1,
                 "xanchor": "right",
-                "y": 1.12,
+                "y": 1.08,
                 "yanchor": "top",
                 "buttons": [
                     {
@@ -278,7 +326,7 @@ def write_page(path: Path, title: str, body: str) -> None:
     table {{ width: 100%; border-collapse: collapse; background: #fff; font-size: 13px; }}
     th, td {{ border: 1px solid #dce5ee; padding: 7px 8px; text-align: left; }}
     th {{ background: #edf2f7; }}
-    .plotly-graph-div {{ margin: 0 auto; }}
+    .plotly-graph-div {{ margin: 0 auto; min-width: 980px; }}
   </style>
 </head>
 <body>
@@ -296,9 +344,7 @@ def label(record: Dict[str, Any], tag: str) -> str:
 
 def compact_label(record: Dict[str, Any], tag: str) -> str:
     desc = record["field_map"].get(tag, tag)
-    if len(desc) > 18:
-        desc = desc[:18] + "..."
-    return f"{tag}<br>{desc}"
+    return f"{tag}<br>{wrap_for_axis(desc, 14, 14)}"
 
 
 def format_num(value: Any, digits: int = 4) -> str:
@@ -329,9 +375,9 @@ def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: 
     subplot_titles = []
     for tag in tags:
         first = next((record for record in records if tag in record["df"].columns), records[0])
-        subplot_titles.append(label(first, tag))
+        subplot_titles.append(shorten_text(label(first, tag), 46))
 
-    fig = make_subplots(rows=len(tags), cols=1, shared_xaxes=False, subplot_titles=subplot_titles, vertical_spacing=0.012)
+    fig = make_subplots(rows=len(tags), cols=1, shared_xaxes=False, subplot_titles=subplot_titles, vertical_spacing=0.018)
     summary_rows: List[List[str]] = []
     key_rows: List[List[str]] = []
     for row_idx, tag in enumerate(tags, start=1):
@@ -344,7 +390,7 @@ def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: 
             fig.add_trace(
                 go.Box(
                     x=values,
-                    name=record["name"],
+                    name=readable_name(record["name"], 22),
                     legendgroup=record["name"],
                     showlegend=row_idx == 1,
                     boxpoints=False,
@@ -368,7 +414,10 @@ def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: 
                 ]
             )
 
-    fig.update_layout(title="目标位号与控制位号统计分布概览", height=max(520, 210 * len(tags)), boxmode="group")
+    distribution_height = max(620, 230 * len(tags))
+    fig.update_layout(title="目标位号与控制位号统计分布概览", boxmode="group")
+    apply_readable_layout(fig, height=distribution_height, top=130, bottom=150, left=130, right=80)
+    fig.update_annotations(font_size=13)
     body = "<p class='muted'>统计指标使用全量数据；图形渲染在数据量较大时仅对显示点做抽样。</p>"
     body += "<div class='panel'>" + fig_html(fig, include_plotlyjs=True) + "</div>"
     body += "<div class='panel center-table'><h2>关键指标</h2>" + table(["文件", "位号", "Q1", "均值", "Q3", "标准差", "P50"], key_rows) + "</div>"
@@ -386,14 +435,20 @@ def time_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence
     for idx, record in enumerate(records):
         tags = [tag for tag in controls if tag in record["df"].columns]
         dfp = sample_df(record["df"][["_time", target] + tags].dropna(subset=["_time"]), max_points)
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, subplot_titles=[label(record, target), "控制位号 z-score"])
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.1,
+            subplot_titles=[shorten_text(label(record, target), 52), "控制位号 z-score"],
+        )
         target_df = dfp[["_time", target]].dropna()
         fig.add_trace(
             go.Scatter(
                 x=target_df["_time"],
                 y=target_df[target],
                 mode="lines+markers",
-                name=label(record, target),
+                name=shorten_text(label(record, target), 28),
                 line={"width": 1.4, "color": "#1f77b4"},
                 marker={"size": 3, "opacity": 0.55},
                 hovertemplate="时间=%{x}<br>目标=%{y:.4f}<extra></extra>",
@@ -412,7 +467,7 @@ def time_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence
                     x=dfp["_time"],
                     y=z,
                     mode="lines+markers",
-                    name=label(record, tag),
+                    name=shorten_text(label(record, tag), 28),
                     line={"width": 1},
                     marker={"size": 2.5, "opacity": 0.45},
                     hovertemplate=f"时间=%{{x}}<br>{esc(label(record, tag))} z=%{{y:.4f}}<extra></extra>",
@@ -420,8 +475,10 @@ def time_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence
                 row=2,
                 col=1,
             )
-        fig.update_layout(title=f"{record['name']}：目标与控制位号沿时间轴变化", height=760, hovermode="x unified", legend={"orientation": "h", "y": -0.18})
+        fig.update_layout(title=f"{readable_name(record['name'], 42)}：目标与控制位号沿时间轴变化", hovermode="x unified")
         add_time_mode_buttons(fig)
+        apply_readable_layout(fig, height=820, top=125, bottom=150, left=95, right=80)
+        fig.update_annotations(font_size=13)
         parts.append(f"<div class='panel'><h2>{esc(record['name'])}</h2>{fig_html(fig, include_plotlyjs=(idx == 0))}</div>")
     filename = "目标控制时间变化.html"
     title = "目标位号与控制位号时间变化"
@@ -448,7 +505,8 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
                 hovertemplate="x=%{x}<br>y=%{y}<br>corr=%{z:.4f}<extra></extra>",
             )
         )
-        fig_heat.update_layout(title=f"{record['name']}：相关性热力图", height=720)
+        fig_heat.update_layout(title=f"{readable_name(record['name'], 42)}：相关性热力图")
+        apply_readable_layout(fig_heat, height=760, top=110, bottom=150, left=150, right=80, legend=False)
 
         rows: List[List[str]] = []
         bars: List[Tuple[str, str, float]] = []
@@ -465,15 +523,16 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
         fig_bar = go.Figure(
             go.Bar(
                 x=[value for _, _, value in bars],
-                y=[f"{tag}<br>{desc[:18]}" for tag, desc, _ in bars],
+                y=[f"{tag}<br>{wrap_for_axis(desc, 14, 14)}" for tag, desc, _ in bars],
                 orientation="h",
                 marker_color=["#2a9d8f" if value >= 0 else "#d95f45" for _, _, value in bars],
                 hovertemplate="%{y}<br>corr=%{x:.4f}<extra></extra>",
             )
         )
-        fig_bar.update_layout(title=f"{record['name']}：控制位号与目标位号相关性", height=max(420, 26 * len(bars) + 160), xaxis_title="Pearson 相关系数", yaxis={"autorange": "reversed"})
+        fig_bar.update_layout(title=f"{readable_name(record['name'], 42)}：控制位号与目标位号相关性", xaxis_title="Pearson 相关系数", yaxis={"autorange": "reversed"})
+        apply_readable_layout(fig_bar, height=max(520, 34 * len(bars) + 180), top=105, bottom=95, left=190, right=80, legend=False)
 
-        scatter_titles = [f"{tag} {desc[:18]}" for tag, desc, _ in bars[:4]]
+        scatter_titles = [shorten_text(f"{tag} {desc}", 34) for tag, desc, _ in bars[:4]]
         fig_scatter = make_subplots(rows=2, cols=2, subplot_titles=scatter_titles)
         for pos, (tag, _desc, value) in enumerate(bars[:4], start=1):
             pair = sample_df(record["df"][[target, tag]].dropna(), max_points)
@@ -485,13 +544,15 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
                     y=pair[target],
                     mode="markers",
                     marker={"size": 3, "opacity": 0.35},
-                    name=f"{tag} corr={value:.3f}",
+                    name=f"{shorten_text(tag, 14)} corr={value:.3f}",
                     hovertemplate=f"{esc(tag)}=%{{x:.4f}}<br>{esc(target)}=%{{y:.4f}}<extra></extra>",
                 ),
                 row=row,
                 col=col,
             )
-        fig_scatter.update_layout(title=f"{record['name']}：相关性最高的控制位号散点图", height=720, showlegend=False)
+        fig_scatter.update_layout(title=f"{readable_name(record['name'], 42)}：相关性最高的控制位号散点图", showlegend=False)
+        apply_readable_layout(fig_scatter, height=760, top=125, bottom=95, left=95, right=70, legend=False)
+        fig_scatter.update_annotations(font_size=12)
         parts.append(
             f"<div class='panel'><h2>{esc(record['name'])}</h2>"
             + fig_html(fig_heat, include_plotlyjs=first_plot)
@@ -570,9 +631,10 @@ def sampling_impact_page(config_path: Path, records: Sequence[Dict[str, Any]], t
         fig = go.Figure()
         rows = []
         for name, values in variants.items():
-            fig.add_trace(go.Box(y=sample_series(values, 50000), name=name, boxpoints="outliers", boxmean="sd"))
+            fig.add_trace(go.Box(y=sample_series(values, 50000), name=shorten_text(name, 24), boxpoints="outliers", boxmean="sd"))
             rows.append([name] + stats_row(values))
-        fig.update_layout(title=f"{pair.get('label', raw['name'])}：降采样影响", height=680, boxmode="group")
+        fig.update_layout(title=f"{readable_name(pair.get('label', raw['name']), 42)}：降采样影响", boxmode="group")
+        apply_readable_layout(fig, height=720, top=110, bottom=145, left=95, right=80)
         parts.append(
             f"<div class='panel'><h2>{esc(pair.get('label', raw['name']))}</h2>"
             + fig_html(fig, include_plotlyjs=first)
