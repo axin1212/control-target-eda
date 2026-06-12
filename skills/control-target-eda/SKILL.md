@@ -48,7 +48,7 @@ IIDF minimum contract used by this skill:
    - Report `robust_range` from resistant quantiles such as P1-P99 or P5-P95, depending on outlier severity and data volume.
    - Report `eda_range` for the initial analysis window.
    - State clearly that these are historical analysis ranges, not validated production safety or operating limits.
-6. Create `工艺上下文.md` in the output directory before plotting. Include:
+6. Create `工艺流程说明.md` in the output directory before plotting. Include:
    - User inputs and missing context.
    - Data inventory and schema summary.
    - Inferred process scenario with evidence and uncertainties.
@@ -76,12 +76,12 @@ python scripts/generate_target_control_eda.py \
 
 Chinese is mandatory for generated reports. `--locale` is retained only for backward compatibility and must not be used to produce English final files.
 
-## 工艺上下文 Markdown
+## 工艺流程说明 Markdown
 
-Write `工艺上下文.md` as a compact engineering note, not a long report. Use this structure:
+Write `工艺流程说明.md` as a compact engineering note, not a long report. Use this structure:
 
 ````markdown
-# 工艺上下文
+# 工艺流程说明
 
 ## 用户输入
 
