@@ -149,10 +149,33 @@ def description_for(meta: Dict[str, Dict[str, Any]], tag: str, fallback: str = "
     return str(row.get("description") or row.get("desc") or row.get("label") or fallback or tag)
 
 
+def has_cjk(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def chinese_description(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    first_cjk = next((idx for idx, char in enumerate(text) if "\u4e00" <= char <= "\u9fff"), None)
+    if first_cjk is not None:
+        text = text[first_cjk:].strip()
+    role_suffixes = {
+        "SP": "设定值",
+        "PV": "测量值",
+        "MV": "操纵量",
+        "CV": "被控变量",
+    }
+    for suffix, replacement in role_suffixes.items():
+        if text.endswith(suffix):
+            return text[: -len(suffix)] + replacement
+    return text
+
+
 def schema_note_for(meta: Dict[str, Dict[str, Any]], tag: str, fallback: str = "") -> str:
     row = meta.get(tag, {})
     dtype = row.get("type") or row.get("dtype") or row.get("data_type") or ""
-    desc = description_for(meta, tag, fallback)
+    desc = chinese_description(description_for(meta, tag, fallback))
     parts = [desc]
     if dtype:
         parts.append(f"类型：{dtype}")
@@ -358,24 +381,31 @@ def write_page(path: Path, title: str, body: str) -> None:
 
 
 def label(record: Dict[str, Any], tag: str) -> str:
-    return f"{tag} {record['field_map'].get(tag, tag)}"
+    desc = chinese_description(record["field_map"].get(tag, tag))
+    if desc and desc != tag and has_cjk(desc):
+        return f"{desc}（{tag}）"
+    return tag
+
+
+def tag_description(record: Dict[str, Any], tag: str) -> str:
+    desc = chinese_description(record["field_map"].get(tag, tag))
+    return desc if desc and desc != tag else record["field_map"].get(tag, tag)
 
 
 def compact_label(record: Dict[str, Any], tag: str) -> str:
-    desc = record["field_map"].get(tag, tag)
+    desc = tag_description(record, tag)
     return f"{tag}<br>{wrap_for_axis(desc, 14, 14)}"
 
 
 def heatmap_axis_label(record: Dict[str, Any], tag: str) -> str:
-    desc = record["field_map"].get(tag, tag)
-    tag_part = shorten_text(tag, 18)
+    desc = tag_description(record, tag)
     desc_part = shorten_text(desc, 16)
-    return f"{tag_part}<br>{desc_part}"
+    tag_part = shorten_text(tag, 18)
+    return f"{desc_part}<br>{tag_part}"
 
 
 def heatmap_hover_label(record: Dict[str, Any], tag: str) -> str:
-    desc = record["field_map"].get(tag, tag)
-    return f"{shorten_text(tag, 24)} / {shorten_text(desc, 24)}"
+    return shorten_text(label(record, tag), 34)
 
 
 def format_num(value: Any, digits: int = 4) -> str:
@@ -399,6 +429,11 @@ def stats_row(series: pd.Series) -> List[str]:
         format_num(s.min()),
         format_num(s.max()),
     ]
+
+
+def tag_reference_table(record: Dict[str, Any], tags: Sequence[str]) -> str:
+    rows = [[tag_description(record, tag), tag] for tag in tags]
+    return "<div class='panel center-table'><h2>位号中文解释</h2>" + table(["中文解释", "位号"], rows) + "</div>"
 
 
 def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence[str], out_dir: Path, locale: str) -> None:
@@ -432,7 +467,7 @@ def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: 
                 col=1,
             )
             s = record["df"][tag]
-            summary_rows.append([record["name"], tag, record["field_map"].get(tag, tag)] + stats_row(s))
+            summary_rows.append([record["name"], tag, tag_description(record, tag)] + stats_row(s))
             key_rows.append(
                 [
                     record["name"],
@@ -450,6 +485,7 @@ def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: 
     apply_readable_layout(fig, height=distribution_height, top=130, bottom=150, left=130, right=80)
     fig.update_annotations(font_size=13)
     body = "<p class='muted'>统计指标使用全量数据；图形渲染在数据量较大时仅对显示点做抽样。</p>"
+    body += tag_reference_table(records[0], tags)
     body += "<div class='panel'>" + fig_html(fig, include_plotlyjs=True) + "</div>"
     body += "<div class='panel center-table'><h2>关键指标</h2>" + table(["文件", "位号", "Q1", "均值", "Q3", "标准差", "P50"], key_rows) + "</div>"
     body += "<div class='panel'><h2>统计摘要</h2>" + table(
@@ -462,7 +498,11 @@ def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: 
 
 
 def time_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence[str], out_dir: Path, max_points: int, locale: str) -> None:
-    parts = ["<p class='muted'>目标位号显示原始值；控制位号标准化为 z-score，便于在同一坐标尺度下比较变化节奏。右上角按钮可切换“点+连线”和“只显示点”。</p>"]
+    all_tags = [target] + [tag for tag in controls if tag != target]
+    parts = [
+        "<p class='muted'>目标位号显示原始值；控制位号标准化为 z-score，便于在同一坐标尺度下比较变化节奏。右上角按钮可切换“点+连线”和“只显示点”。</p>",
+        tag_reference_table(records[0], all_tags),
+    ]
     for idx, record in enumerate(records):
         tags = [tag for tag in controls if tag in record["df"].columns]
         dfp = sample_df(record["df"][["_time", target] + tags].dropna(subset=["_time"]), max_points)
@@ -517,7 +557,11 @@ def time_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence
 
 
 def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence[str], out_dir: Path, max_points: int, locale: str) -> None:
-    parts = ["<p class='muted'>相关性基于全量配对数据计算；散点图仅在显示层面抽样。相关性用于筛查共变关系，不代表因果。</p>"]
+    all_tags = [target] + [tag for tag in controls if tag != target]
+    parts = [
+        "<p class='muted'>相关性基于全量配对数据计算；散点图仅在显示层面抽样。相关性用于筛查共变关系，不代表因果。</p>",
+        tag_reference_table(records[0], all_tags),
+    ]
     first_plot = True
     for record in records:
         tags = [target] + [tag for tag in controls if tag in record["df"].columns and tag != target]
@@ -553,9 +597,9 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
                 continue
             pair = record["df"][[target, tag]].dropna()
             value = pair[target].corr(pair[tag]) if len(pair) >= 3 and pair[tag].std() != 0 else np.nan
-            rows.append([tag, record["field_map"].get(tag, tag), f"{len(pair):,}", format_num(value)])
+            rows.append([tag, tag_description(record, tag), f"{len(pair):,}", format_num(value)])
             if not pd.isna(value):
-                bars.append((tag, record["field_map"].get(tag, tag), float(value)))
+                bars.append((tag, tag_description(record, tag), float(value)))
         bars.sort(key=lambda item: abs(item[2]), reverse=True)
 
         fig_bar = go.Figure(
@@ -627,13 +671,13 @@ def overview_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequ
     schema_rows = [
         [
             tag,
-            first_record["field_map"].get(tag, tag),
-            first_record.get("schema_map", {}).get(tag, first_record["field_map"].get(tag, tag)),
+            tag_description(first_record, tag),
+            first_record.get("schema_map", {}).get(tag, tag_description(first_record, tag)),
         ]
         for tag in tags
     ]
     controls_html = "".join(
-        f"<li><code>{esc(tag)}</code>：{esc(first_record['field_map'].get(tag, tag))}</li>"
+        f"<li>{esc(label(first_record, tag))}</li>"
         for tag in controls
     )
     links = [
@@ -645,7 +689,7 @@ def overview_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequ
     body = f"""
 <div class="panel">
   <h2>目标位号</h2>
-  <p><b><code>{esc(target)}</code></b>：{esc(first_record["field_map"].get(target, target))}</p>
+  <p><b>{esc(label(first_record, target))}</b></p>
   <p class="muted">控制位号：</p>
   <ul>{controls_html}</ul>
 </div>

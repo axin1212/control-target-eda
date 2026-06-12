@@ -131,7 +131,8 @@ Keep Mermaid diagrams editable and simple. Use process equipment or unit names w
 - `--time-col`: timestamp column name; auto-detected when omitted.
 - `--metadata`: optional JSON metadata file for tag descriptions and units.
   - Supports `tags`, `columns`, top-level `{tag: metadata}`, and dataset-style `descriptions: {tag: "中文释义"}` mappings.
-  - When metadata includes descriptions, generated charts, hover labels, tables, and schema notes should show `位号 + 中文释义`, while preserving the original tag code for engineering traceability.
+  - When metadata includes descriptions, generated charts, hover labels, tables, and schema notes should show the Chinese process meaning first, such as `空气流量设定值（FIC2615.W）`, while preserving the original tag code for engineering traceability.
+  - Each HTML report should include a visible `位号中文解释` table before plots so users can understand which process segment each tag belongs to without reading DCS-style tag codes.
 - `--output-dir`: output directory for standalone HTML reports.
 - `--format`: `auto`, `iidf`, `two-row-csv`, `csv`, `excel`, or `parquet`.
 - `--max-points-display`: display sampling cap; statistics and correlations remain full-data.
