@@ -131,13 +131,32 @@ def load_metadata(path: Optional[Path]) -> Dict[str, Dict[str, Any]]:
             continue
         tag = row.get("tag") or row.get("name") or row.get("code") or row.get("column")
         if tag:
-            meta[str(tag)] = row
+            meta[str(tag)] = dict(row)
+    if isinstance(data, dict):
+        descriptions = data.get("descriptions")
+        if isinstance(descriptions, dict):
+            for tag, description in descriptions.items():
+                row = meta.setdefault(str(tag), {"tag": str(tag)})
+                if isinstance(description, dict):
+                    row.update(description)
+                elif description not in (None, ""):
+                    row["description"] = str(description)
     return meta
 
 
 def description_for(meta: Dict[str, Dict[str, Any]], tag: str, fallback: str = "") -> str:
     row = meta.get(tag, {})
     return str(row.get("description") or row.get("desc") or row.get("label") or fallback or tag)
+
+
+def schema_note_for(meta: Dict[str, Dict[str, Any]], tag: str, fallback: str = "") -> str:
+    row = meta.get(tag, {})
+    dtype = row.get("type") or row.get("dtype") or row.get("data_type") or ""
+    desc = description_for(meta, tag, fallback)
+    parts = [desc]
+    if dtype:
+        parts.append(f"类型：{dtype}")
+    return "；".join(parts)
 
 
 def read_two_row_csv(path: Path) -> Tuple[pd.DataFrame, Dict[str, str]]:
@@ -563,8 +582,8 @@ def correlation_page(records: Sequence[Dict[str, Any]], target: str, controls: S
                     y=pair[target],
                     mode="markers",
                     marker={"size": 3, "opacity": 0.35},
-                    name=f"{shorten_text(tag, 14)} corr={value:.3f}",
-                    hovertemplate=f"{esc(tag)}=%{{x:.4f}}<br>{esc(target)}=%{{y:.4f}}<extra></extra>",
+                    name=f"{shorten_text(label(record, tag), 20)} corr={value:.3f}",
+                    hovertemplate=f"{esc(label(record, tag))}=%{{x:.4f}}<br>{esc(label(record, target))}=%{{y:.4f}}<extra></extra>",
                 ),
                 row=row,
                 col=col,
@@ -603,6 +622,20 @@ def overview_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequ
                 format_num(series.std()),
             ]
         )
+    first_record = records[0]
+    tags = [target] + [tag for tag in controls if tag != target]
+    schema_rows = [
+        [
+            tag,
+            first_record["field_map"].get(tag, tag),
+            first_record.get("schema_map", {}).get(tag, first_record["field_map"].get(tag, tag)),
+        ]
+        for tag in tags
+    ]
+    controls_html = "".join(
+        f"<li><code>{esc(tag)}</code>：{esc(first_record['field_map'].get(tag, tag))}</li>"
+        for tag in controls
+    )
     links = [
         ("统计分布", "目标控制统计分布.html"),
         ("时间变化", "目标控制时间变化.html"),
@@ -612,10 +645,12 @@ def overview_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequ
     body = f"""
 <div class="panel">
   <h2>目标位号</h2>
-  <p><b>{esc(target)}</b></p>
-  <p class="muted">控制位号：{esc(', '.join(controls))}</p>
+  <p><b><code>{esc(target)}</code></b>：{esc(first_record["field_map"].get(target, target))}</p>
+  <p class="muted">控制位号：</p>
+  <ul>{controls_html}</ul>
 </div>
 <div class="panel"><h2>报告入口</h2><ul>{link_html}</ul></div>
+<div class="panel"><h2>位号释义 / Schema</h2>{table(["位号", "中文释义", "Schema 注释"], schema_rows)}</div>
 <div class="panel"><h2>数据概览</h2>{table(["文件", "行数", "开始时间", "结束时间", "目标有效", "目标缺失", "均值", "标准差"], rows)}</div>
 """
     title = "目标控制 Plotly EDA"
@@ -692,7 +727,8 @@ def main() -> None:
             continue
         df = numeric_frame(raw_df, time_col, tags)
         field_map = {tag: description_for(metadata, tag, csv_field_map.get(tag, tag)) for tag in tags}
-        records.append({"name": path.stem, "path": path, "df": df, "field_map": field_map})
+        schema_map = {tag: schema_note_for(metadata, tag, csv_field_map.get(tag, tag)) for tag in tags}
+        records.append({"name": path.stem, "path": path, "df": df, "field_map": field_map, "schema_map": schema_map})
 
     if not records:
         raise SystemExit("No files contain the requested target tag.")
