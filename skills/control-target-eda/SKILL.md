@@ -145,6 +145,7 @@ Keep Mermaid diagrams editable and simple. Use process equipment or unit names w
 - Keep statistics and correlations on full available data unless the user explicitly asks otherwise.
 - Sampling is only for rendering large time-series and scatter plots.
 - Distribution pages should combine horizontal distribution overview with key metrics and full summary tables.
+- Frequency histograms on distribution pages must use percentage y-axes, not raw counts, and reserve enough vertical spacing so subplot titles, axis labels, and legends do not overlap.
 - Correlation is a screening view, not causal evidence. Mention lag, state segmentation, and process constraints when interpreting results.
 - Time-series pages should provide Chinese buttons for switching between points-only and points-with-lines display.
 - Ensure generated charts have coordinated layout with no obvious overlap among titles, subplot titles, legends, axis labels, tick labels, and mode buttons.

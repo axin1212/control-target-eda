@@ -436,6 +436,133 @@ def tag_reference_table(record: Dict[str, Any], tags: Sequence[str]) -> str:
     return "<div class='panel center-table'><h2>位号中文解释</h2>" + table(["中文解释", "位号"], rows) + "</div>"
 
 
+def robust_distribution_values(series: pd.Series) -> Tuple[pd.Series, int, int, str]:
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if len(s) < 200:
+        return s, 0, 0, "全量范围"
+    lower = float(s.quantile(0.01))
+    upper = float(s.quantile(0.99))
+    if not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper:
+        return s, 0, 0, "全量范围"
+    clipped = s[(s >= lower) & (s <= upper)]
+    return clipped, int((s < lower).sum()), int((s > upper).sum()), "P01-P99"
+
+
+def histogram_bin_count(sample_count: int) -> int:
+    if sample_count <= 0:
+        return 30
+    return int(min(80, max(30, round(math.sqrt(sample_count)))))
+
+
+def kde_percent_values(values: pd.Series, grid: np.ndarray, bin_width: float) -> Optional[np.ndarray]:
+    arr = pd.to_numeric(values, errors="coerce").dropna().to_numpy(dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if len(arr) < 5:
+        return None
+    std = float(np.std(arr, ddof=1))
+    if not math.isfinite(std) or std <= 0:
+        return None
+    if len(arr) > 20000:
+        rng = np.random.default_rng(7)
+        arr = rng.choice(arr, size=20000, replace=False)
+    bandwidth = 1.06 * std * (len(arr) ** (-1 / 5))
+    if not math.isfinite(bandwidth) or bandwidth <= 0:
+        return None
+    chunks: List[np.ndarray] = []
+    for start in range(0, len(grid), 50):
+        chunk = grid[start : start + 50]
+        scaled = (chunk[:, None] - arr[None, :]) / bandwidth
+        density = np.exp(-0.5 * scaled * scaled).mean(axis=1) / (bandwidth * math.sqrt(2 * math.pi))
+        chunks.append(density)
+    density = np.concatenate(chunks)
+    return density * bin_width * 100.0
+
+
+def histogram_kde_page_figure(records: Sequence[Dict[str, Any]], tags: Sequence[str]) -> Tuple[go.Figure, List[List[str]]]:
+    subplot_titles = []
+    for tag in tags:
+        first = next((record for record in records if tag in record["df"].columns), records[0])
+        subplot_titles.append(shorten_text(label(first, tag), 46))
+    fig = make_subplots(rows=len(tags), cols=1, shared_xaxes=False, subplot_titles=subplot_titles, vertical_spacing=0.03)
+    range_rows: List[List[str]] = []
+    for row_idx, tag in enumerate(tags, start=1):
+        first_for_axis = next((record for record in records if tag in record["df"].columns), records[0])
+        fig.update_xaxes(title_text=shorten_text(tag_description(first_for_axis, tag), 36), row=row_idx, col=1)
+        fig.update_yaxes(title_text="百分比（%） / KDE估计百分比", row=row_idx, col=1)
+        for record in records:
+            if tag not in record["df"].columns:
+                continue
+            values, below_count, above_count, range_label = robust_distribution_values(record["df"][tag])
+            if values.empty:
+                continue
+            bins = histogram_bin_count(len(values))
+            counts, edges = np.histogram(values.to_numpy(dtype=float), bins=bins)
+            if len(edges) < 2:
+                continue
+            total = float(counts.sum())
+            if total <= 0:
+                continue
+            percentages = counts / total * 100.0
+            centers = (edges[:-1] + edges[1:]) / 2
+            widths = np.diff(edges)
+            fig.add_trace(
+                go.Bar(
+                    x=centers,
+                    y=percentages,
+                    width=widths,
+                    name=f"{readable_name(record['name'], 18)} 直方图",
+                    legendgroup=record["name"],
+                    showlegend=row_idx == 1,
+                    opacity=0.48,
+                    marker={"line": {"width": 0}},
+                    hovertemplate=(
+                        f"{esc(label(record, tag))}<br>{esc(record['name'])}<br>"
+                        "区间中心=%{x:.4f}<br>百分比=%{y:.2f}%<extra></extra>"
+                    ),
+                ),
+                row=row_idx,
+                col=1,
+            )
+            bin_width = float(np.median(widths)) if len(widths) else 0.0
+            if bin_width > 0:
+                grid = np.linspace(float(edges[0]), float(edges[-1]), 200)
+                kde_percent = kde_percent_values(values, grid, bin_width)
+                if kde_percent is not None:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=grid,
+                            y=kde_percent,
+                            mode="lines",
+                            name=f"{readable_name(record['name'], 18)} KDE百分比",
+                            legendgroup=record["name"],
+                            showlegend=row_idx == 1,
+                            line={"width": 2.0},
+                            hovertemplate=(
+                                f"{esc(label(record, tag))}<br>{esc(record['name'])}<br>"
+                                "数值=%{x:.4f}<br>KDE估计百分比=%{y:.2f}%<extra></extra>"
+                            ),
+                        ),
+                        row=row_idx,
+                        col=1,
+                    )
+            range_rows.append(
+                [
+                    record["name"],
+                    tag,
+                    range_label,
+                    f"{len(values):,}",
+                    f"{below_count:,}",
+                    f"{above_count:,}",
+                    str(bins),
+                ]
+            )
+    hist_height = max(760, 360 * len(tags))
+    fig.update_layout(title="频率分布直方图与 KDE 曲线（百分比）", barmode="overlay")
+    apply_readable_layout(fig, height=hist_height, top=150, bottom=170, left=135, right=95)
+    fig.update_annotations(font_size=12, yshift=8)
+    return fig, range_rows
+
+
 def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: Sequence[str], out_dir: Path, locale: str) -> None:
     tags = [target] + [tag for tag in controls if tag != target]
     subplot_titles = []
@@ -484,9 +611,21 @@ def distribution_page(records: Sequence[Dict[str, Any]], target: str, controls: 
     fig.update_layout(title="目标位号与控制位号统计分布概览", boxmode="group")
     apply_readable_layout(fig, height=distribution_height, top=130, bottom=150, left=130, right=80)
     fig.update_annotations(font_size=13)
-    body = "<p class='muted'>统计指标使用全量数据；图形渲染在数据量较大时仅对显示点做抽样。</p>"
+    hist_fig, hist_range_rows = histogram_kde_page_figure(records, tags)
+    body = "<p class='muted'>统计指标使用全量数据；箱线图在数据量较大时仅对显示点做抽样。</p>"
     body += tag_reference_table(records[0], tags)
     body += "<div class='panel'>" + fig_html(fig, include_plotlyjs=True) + "</div>"
+    body += (
+        "<div class='panel'><p class='muted'>直方图基于全量有效样本聚合生成，Y 轴显示该位号在当前显示范围内的样本百分比；KDE 曲线使用确定性抽样估计，"
+        "并缩放为百分比口径，仅用于观察分布形态。为避免极端值压缩主体分布，样本量充足时默认展示 P01-P99 区间，"
+        "区间外样本数见下表。</p>"
+        + fig_html(hist_fig)
+        + "</div>"
+    )
+    body += "<div class='panel center-table'><h2>直方图范围说明</h2>" + table(
+        ["文件", "位号", "显示范围", "参与绘图样本", "低于范围", "高于范围", "分箱数"],
+        hist_range_rows,
+    ) + "</div>"
     body += "<div class='panel center-table'><h2>关键指标</h2>" + table(["文件", "位号", "Q1", "均值", "Q3", "标准差", "P50"], key_rows) + "</div>"
     body += "<div class='panel'><h2>统计摘要</h2>" + table(
         ["文件", "位号", "描述", "有效", "缺失", "均值", "标准差", "P05", "Q1", "P50", "Q3", "P95", "最小", "最大"],
